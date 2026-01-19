@@ -431,6 +431,7 @@ bool sync_packages(MeasureGroup &meas)
     {
         meas.lidar = lidar_buffer.front();
         meas.lidar_beg_time = time_buffer.front();
+        std::cout << "\033[1;33m[WARN] Total points received: " << meas.lidar->points.size() << "\033[0m" << std::endl;
         if (meas.lidar->points.size() <= 1) // time too little
         {
             lidar_end_time = meas.lidar_beg_time + lidar_mean_scantime;
