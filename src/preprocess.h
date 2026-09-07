@@ -91,7 +91,11 @@ struct EIGEN_ALIGN16 Point
   float intensity;
   uint32_t t;
   uint16_t reflectivity;
-  uint8_t ring;
+  // upstream 은 uint8 이었으나 ouster-ros 드라이버·sim 발행부는 ring 을
+  // uint16 으로 낸다 — dtype 불일치면 fromROSMsg 가 매 스캔 "Failed to find
+  // match for field 'ring'" 을 내며 ring 이 조용히 0 으로 채워진다
+  // (2026-09-06 sim loccmp 실측; ul 내장 사본 frontend_fast_lio 는 이미 uint16).
+  uint16_t ring;
   uint16_t ambient;
   uint32_t range;
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
@@ -107,7 +111,7 @@ POINT_CLOUD_REGISTER_POINT_STRUCT(ouster_ros::Point,
     // use std::uint32_t to avoid conflicting with pcl::uint32_t
     (std::uint32_t, t, t)
     (std::uint16_t, reflectivity, reflectivity)
-    (std::uint8_t, ring, ring)
+    (std::uint16_t, ring, ring)
     (std::uint16_t, ambient, ambient)
     (std::uint32_t, range, range)
 )
