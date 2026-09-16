@@ -46,6 +46,11 @@ class ImuProcess
   void set_acc_cov(const V3D &scaler);
   void set_gyr_bias_cov(const V3D &b_g);
   void set_acc_bias_cov(const V3D &b_a);
+  /// true: at IMU init, set the initial attitude so that the mean specific force
+  /// (= -gravity) maps to +z, i.e. the world frame is gravity-aligned.
+  /// false (original): world = initial IMU frame; a robot standing with pitch
+  /// theta gets a world tilted by theta (flat ground then "rises" by d*tan(theta)).
+  void set_gravity_align(bool en) { gravity_align_ = en; }
   Eigen::Matrix<double, 12, 12> Q;
   void Process(const MeasureGroup &meas,  esekfom::esekf<state_ikfom, 12, input_ikfom> &kf_state, PointCloudXYZI::Ptr pcl_un_);
 
@@ -78,6 +83,7 @@ class ImuProcess
   double last_lidar_end_time_;
   int    init_iter_num = 1;
   bool   b_first_frame_ = true;
+  bool   gravity_align_ = false;
   bool   imu_need_init_ = true;
 };
 
@@ -190,9 +196,36 @@ void ImuProcess::IMU_init(const MeasureGroup &meas, esekfom::esekf<state_ikfom, 
     N ++;
   }
   state_ikfom init_state = kf_state.get_x();
-  init_state.grav = S2(- mean_acc / mean_acc.norm() * G_m_s2);
-  
-  //state_inout.rot = Eye3d; // Exp(mean_acc.cross(V3D(0, 0, -1 / scale_gravity)));
+  if (gravity_align_)
+  {
+    // The mean specific force at rest points opposite to gravity. Use the minimal
+    // rotation R0 with R0 * a_hat = +z as the initial attitude, so world z is "up"
+    // and the gravity state starts at (0,0,-G). Yaw stays arbitrary (0).
+    // Without this the world equals the initial IMU frame: a robot standing with
+    // 1.6 deg pitch sees flat-ground z "rise" by distance*tan(1.6 deg)
+    // (measured on a quadruped, plane fit r^2 = 0.97).
+    V3D a_hat = mean_acc / mean_acc.norm();
+    V3D z_up(0.0, 0.0, 1.0);
+    V3D axis = a_hat.cross(z_up);
+    double s_ = axis.norm(), c_ = a_hat.dot(z_up);
+    M3D R0 = M3D::Identity();
+    if (s_ > 1e-9)
+    {
+      axis /= s_;
+      double ang = std::atan2(s_, c_);
+      Eigen::AngleAxisd aa(ang, axis);
+      R0 = aa.toRotationMatrix();
+    }
+    else if (c_ < 0) { R0 = Eigen::AngleAxisd(M_PI, V3D::UnitX()).toRotationMatrix(); }
+    init_state.rot = SO3(R0);
+    init_state.grav = S2(V3D(0.0, 0.0, -G_m_s2));
+    std::cout << "[imu] gravity_align: tilt " << std::atan2(s_, c_) * 180.0 / M_PI
+              << " deg, mean_acc " << mean_acc.transpose() << std::endl;
+  }
+  else
+  {
+    init_state.grav = S2(- mean_acc / mean_acc.norm() * G_m_s2);
+  }
   init_state.bg  = mean_gyr;
   init_state.offset_T_L_I = Lidar_T_wrt_IMU;
   init_state.offset_R_L_I = Lidar_R_wrt_IMU;
